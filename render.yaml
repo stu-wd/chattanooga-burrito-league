@@ -42,3 +42,6 @@ services:
         sync: false
       - key: BASE_URL
         sync: false
+      # Optional: set to use /debug/* + admin endpoints in prod; leave unset to lock them.
+      - key: ADMIN_TOKEN
+        sync: false

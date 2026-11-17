@@ -1,81 +1,88 @@
-# Chattanooga Burrito League
+# Chattanooga Burrito League 🌯
 
-Strava webhook service that detects completion of a target Strava **segment**
-and appends a playful note to the activity's description.
+A Strava companion that watches a target **segment** and, each time you cross it,
+tallies your "burritos" and appends a running total to your activity description.
+Opt in to a public, consent-based leaderboard with a display name of your choice.
 
-Phase 1 scope: OAuth onboarding, webhook validation + event intake, encrypted
-token storage, a DB-backed job queue drained by a single worker, and the
-detect → tally → write-back pipeline. Single-player until Strava approves the app.
+Live: https://chattanooga-burrito-league.onrender.com
+
+## How it works
+1. You connect with Strava (OAuth). Tokens are stored encrypted.
+2. Strava sends a webhook when you finish an activity.
+3. A background worker fetches the activity, counts crossings of the target
+   segment (`segment_efforts` from Strava), records each as a row, and — per your
+   write preference — appends/prepends a note (or stays off).
+4. Totals are always *computed by counting rows*, never a stored counter.
+
+```
+Strava webhook ─▶ enqueue ─▶ DB job queue ─▶ worker (rate-limited)
+                                               ├─ fetch activity + segment efforts
+                                               ├─ record SegmentEffort rows
+                                               └─ write description (append/prepend/off)
+```
+
+## Pages
+- `/` — landing + Connect with Strava
+- `/settings` — write mode (append/prepend/off) with live preview, leaderboard
+  opt-in + display name, backfill by year, reset, disconnect
+- `/leaderboard` — public standings (opted-in athletes only), aggregate totals
+- `/history` — your own rolls per activity
+- Hamburger (☰) nav links History / Leaderboard / Settings when signed in.
+
+## TOS & privacy
+Strava's API Agreement: a user's data may only be shown to that user, **except
+with explicit consent**. So:
+- Write-backs contain only the athlete's own data, on their own activity.
+- The leaderboard shows only athletes who affirmatively opted in **and** chose a
+  display name (that choice is the consent). Opting out / disconnecting removes
+  them and deletes their data.
+- `/debug/*` and admin endpoints expose cross-athlete data and are gated behind
+  `ADMIN_TOKEN` (404 when unset). Never expose them publicly.
+
+## Local development
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env      # fill in values (see table below)
+.venv/bin/uvicorn app.main:app --reload --port 8000
+ngrok http 8000           # public URL for OAuth + webhooks in dev
+```
+Put the ngrok URL in `.env` `BASE_URL` and as the Strava app's Authorization
+Callback Domain, then create the webhook subscription:
+```bash
+scripts/subscribe.sh create   # also: list | delete <id>
+```
+
+## Deploy (Render)
+`render.yaml` is a Blueprint: one always-on web service (app + in-process worker)
++ managed Postgres. Create via Render → New → Blueprint, pointing at this repo.
+Set the `sync:false` env vars in the dashboard. Tables auto-create on boot
+(`init_db`). After the first deploy, set `BASE_URL` to the Render URL and the
+Strava callback domain to the Render host, then (re)create the subscription
+against `https://<host>/strava/webhook`.
+
+> Deploys are **manual** (not on-push): trigger "Deploy latest commit" in Render.
+> Free tier sleeps when idle and Postgres expires in ~90 days — fine for testing.
+
+## Environment variables
+| Var | Purpose |
+|---|---|
+| `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` | Strava API app credentials |
+| `STRAVA_VERIFY_TOKEN` | Echoed during webhook subscription validation |
+| `ENCRYPTION_KEY` | Fernet key for encrypting stored tokens |
+| `SESSION_SECRET` | Signs the session cookie |
+| `ADMIN_TOKEN` | Gates `/debug/*` + admin endpoints (unset = locked) |
+| `DATABASE_URL` | SQLite (dev) / Postgres (prod) |
+| `BASE_URL` | Public base URL (builds the OAuth redirect) |
+| `TARGET_SEGMENT_ID` | The burrito segment |
+| `COMPETITION_START` / `COMPETITION_END` | Active edition window (ISO, UTC) |
+| `STRAVA_SCOPES` | `read,activity:read,activity:write` |
 
 ## Layout
-- `app/config.py` — env-driven settings
-- `app/crypto.py` — Fernet encryption for stored tokens
-- `app/models.py` — `athletes`, `processed_activities`, `segment_efforts`, `jobs`
-- `app/strava.py` — OAuth token exchange/refresh + activity read/update
-- `app/oauth.py` — `/auth/login`, `/auth/callback`
-- `app/webhook.py` — `GET/POST /strava/webhook` (+ deauth purge)
-- `app/worker.py` — DB queue `enqueue()` + async worker loop
-- `app/processing.py` — segment detection, counts, description builder
-- `app/main.py` — app wiring + `/debug/*` helpers
+- `app/oauth.py` · `app/api.py` · `app/web.py` — OAuth, session JSON API, pages
+- `app/webhook.py` · `app/worker.py` — webhook intake, DB queue + worker
+- `app/processing.py` · `app/backfill.py` — detect/tally/write, backfill
+- `app/leaderboard.py` · `app/strava.py` · `app/ratelimit.py` — standings, Strava client, limiter
+- `app/models.py` · `app/db.py` · `app/crypto.py` · `app/config.py` — data + infra
+- `app/templates/` — Jinja pages (thin callers of the JSON API)
 
-## One-time setup
-
-1. **Register a Strava API app** at <https://www.strava.com/settings/api>.
-   - Authorization Callback Domain: your ngrok host **without scheme/path**,
-     e.g. `abc123.ngrok-free.app` (update when the ngrok URL changes).
-   - Copy the **Client ID** and **Client Secret**.
-2. **Fill `.env`** (already has a generated `ENCRYPTION_KEY` and a `STRAVA_VERIFY_TOKEN`):
-   - `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`
-   - `TARGET_SEGMENT_ID` — the burrito segment's numeric ID (from its Strava URL).
-3. **Install deps:** `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`
-
-## Run (dev)
-
-```bash
-# terminal 1 — the app
-.venv/bin/uvicorn app.main:app --reload --port 8000
-
-# terminal 2 — public tunnel; copy the https URL into .env BASE_URL and the
-# Strava app's Authorization Callback Domain
-ngrok http 8000
-```
-
-## Onboard your account
-
-Open `<BASE_URL>/auth/login` in a browser (add `?consent=true` to opt into the
-community counter). Approve on Strava → redirected to `/auth/callback` → tokens
-stored. Verify with `GET /debug/state`.
-
-## Create the webhook subscription (once per app)
-
-```bash
-curl -X POST https://www.strava.com/api/v3/push_subscriptions \
-  -F client_id=$STRAVA_CLIENT_ID \
-  -F client_secret=$STRAVA_CLIENT_SECRET \
-  -F callback_url=$BASE_URL/strava/webhook \
-  -F verify_token=$STRAVA_VERIFY_TOKEN
-```
-
-Strava immediately calls `GET /strava/webhook` to validate; the service echoes
-the challenge. List/delete subscriptions via the same endpoint with GET/DELETE.
-
-## Manual testing without a real ride
-
-- **Fire a synthetic create event** (same path a real webhook takes → enqueues a job):
-  ```bash
-  curl -X POST localhost:8000/strava/webhook -H 'content-type: application/json' \
-    -d '{"object_type":"activity","aspect_type":"create","object_id":<ACTIVITY_ID>,"owner_id":<YOUR_ATHLETE_ID>}'
-  ```
-- **Process one activity synchronously** (bypass the queue, see the outcome inline):
-  ```bash
-  curl -X POST "localhost:8000/debug/process/<ACTIVITY_ID>?athlete_id=<YOUR_ATHLETE_ID>"
-  ```
-  Point `TARGET_SEGMENT_ID` at a segment you've actually ridden on `<ACTIVITY_ID>`
-  to see a real description write-back.
-- **Inspect queue + onboarded athletes:** `GET /debug/state`
-
-## Compliance guardrails (built in)
-- Only the athlete's own data goes in their own activity. The community-total
-  line is added **only for athletes who consented** (`?consent=true`).
-- Deauthorization webhook hard-deletes that athlete's tokens and derived data.
-- "Powered by Strava" appended to every written description.
+See `ROADMAP.md` for what's next.

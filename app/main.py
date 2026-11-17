@@ -2,7 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
@@ -36,12 +36,19 @@ app.include_router(oauth.router)
 app.include_router(webhook.router)
 
 
+def require_admin(x_admin_token: str | None = Header(default=None)):
+    """Guard for /debug/* and admin endpoints. Exposes cross-athlete data, so it
+    must never be public (privacy + Strava TOS). Returns 404 to hide existence."""
+    if not settings.admin_token or x_admin_token != settings.admin_token:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
 @app.get("/healthz")
 def healthz():
     return {"status": "ok", "target_segment_id": settings.target_segment_id}
 
 
-@app.get("/debug/state")
+@app.get("/debug/state", dependencies=[Depends(require_admin)])
 def debug_state(session: Session = Depends(get_session)):
     athletes = session.scalars(select(Athlete)).all()
     return {
@@ -59,7 +66,7 @@ def debug_state(session: Session = Depends(get_session)):
     }
 
 
-@app.put("/athlete/{athlete_id}/consent")
+@app.put("/athlete/{athlete_id}/consent", dependencies=[Depends(require_admin)])
 def set_consent(
     athlete_id: int, value: bool, session: Session = Depends(get_session)
 ):
@@ -73,7 +80,7 @@ def set_consent(
     return {"athlete_id": athlete_id, "community_consent": athlete.community_consent}
 
 
-@app.put("/athlete/{athlete_id}/write-mode")
+@app.put("/athlete/{athlete_id}/write-mode", dependencies=[Depends(require_admin)])
 def set_write_mode(
     athlete_id: int, mode: str, session: Session = Depends(get_session)
 ):
@@ -90,7 +97,7 @@ def set_write_mode(
     return {"athlete_id": athlete_id, "write_mode": athlete.write_mode}
 
 
-@app.post("/athlete/{athlete_id}/backfill")
+@app.post("/athlete/{athlete_id}/backfill", dependencies=[Depends(require_admin)])
 def backfill(
     athlete_id: int, write: bool = False, session: Session = Depends(get_session)
 ):
@@ -104,7 +111,7 @@ def backfill(
     return {"status": "queued", "job_id": job_id, "write": write}
 
 
-@app.post("/debug/process/{activity_id}")
+@app.post("/debug/process/{activity_id}", dependencies=[Depends(require_admin)])
 def debug_process(
     activity_id: int, athlete_id: int, session: Session = Depends(get_session)
 ):

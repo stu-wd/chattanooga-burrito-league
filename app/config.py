@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     strava_verify_token: str
     encryption_key: str
     session_secret: str = "dev-insecure-change-me"
+    # Gates /debug/* and admin endpoints (X-Admin-Token header). Empty = locked.
+    admin_token: str = ""
     database_url: str = "sqlite:///./burrito.db"
     base_url: str = "http://localhost:8000"
     target_segment_id: int = 0
