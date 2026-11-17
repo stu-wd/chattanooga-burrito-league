@@ -2,10 +2,16 @@
 
 Drives POST /strava/webhook through FastAPI with an in-memory SQLite session
 overriding get_session. Run: `.venv/bin/python tests/test_webhook_delete.py`.
+
+Each activity is seeded the way the live path leaves it under the §6.2 cache: a
+CountedActivity ledger row (keyed on a one-way HMAC, folded into WindowTally)
+plus — for the pre-cutover window — some raw SegmentEffort rows. A delete event
+must clear both.
 """
 
 from datetime import datetime, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -13,7 +19,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_session
 from app.main import app
-from app.models import ProcessedActivity, SegmentEffort
+from app.models import Athlete, CountedActivity, SegmentEffort
+from app.tally import activity_hash, fold_activity
 
 # StaticPool keeps one connection so every session shares the same in-memory DB.
 engine = create_engine(
@@ -31,13 +38,41 @@ def _override():
         s.close()
 
 
-app.dependency_overrides[get_session] = _override
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _override_session():
+    """Scope the get_session override to each test. app.dependency_overrides is
+    global on the shared app singleton, so a permanent module-level assignment
+    gets clobbered by any other test module that sets/pops the same key (e.g.
+    test_history_live) depending on run order. Save/restore keeps us isolated."""
+    prev = app.dependency_overrides.get(get_session)
+    app.dependency_overrides[get_session] = _override
+    try:
+        yield
+    finally:
+        if prev is None:
+            app.dependency_overrides.pop(get_session, None)
+        else:
+            app.dependency_overrides[get_session] = prev
 
 
 def _seed(activity_id: int, athlete_id: int, n: int = 2):
     s = Session()
-    s.add(ProcessedActivity(activity_id=activity_id, athlete_id=athlete_id, matched=True))
+    if s.get(Athlete, athlete_id) is None:
+        s.add(
+            Athlete(
+                athlete_id=athlete_id,
+                access_token_enc="x",
+                refresh_token_enc="x",
+                expires_at=0,
+            )
+        )
+        s.commit()
+    # Fold the activity into the aggregate (crossings == the raw effort count).
+    fold_activity(s, athlete_id, activity_id, n)
+    # Plus the transient raw rows that exist before the fold-and-forget sweep.
     for i in range(n):
         s.add(
             SegmentEffort(
@@ -52,12 +87,11 @@ def _seed(activity_id: int, athlete_id: int, n: int = 2):
     s.close()
 
 
-def _count(activity_id: int) -> int:
+def _count(activity_id: int, athlete_id: int) -> int:
     s = Session()
-    n = (
-        s.query(SegmentEffort).filter_by(activity_id=activity_id).count()
-        + s.query(ProcessedActivity).filter_by(activity_id=activity_id).count()
-    )
+    n = s.query(SegmentEffort).filter_by(activity_id=activity_id).count()
+    if s.get(CountedActivity, (athlete_id, activity_hash(athlete_id, activity_id))):
+        n += 1
     s.close()
     return n
 
@@ -70,8 +104,8 @@ def test_delete_event_purges():
               "object_id": 100, "owner_id": 1, "updates": {}},
     )
     assert r.status_code == 200, r.text
-    assert r.json() == {"status": "purged", "removed": 3}
-    assert _count(100) == 0
+    assert r.json() == {"status": "purged", "removed": 3}  # 2 efforts + 1 ledger row
+    assert _count(100, 1) == 0
 
 
 def test_delete_unknown_activity_noop():
@@ -93,7 +127,7 @@ def test_private_update_purges():
     )
     assert r.status_code == 200, r.text
     assert r.json() == {"status": "purged", "removed": 3}
-    assert _count(200) == 0
+    assert _count(200, 2) == 0
 
 
 def test_title_update_ignored():
@@ -105,10 +139,13 @@ def test_title_update_ignored():
     )
     assert r.status_code == 200, r.text
     assert r.json() == {"status": "ignored"}
-    assert _count(300) == 3  # untouched
+    assert _count(300, 3) == 3  # untouched: 2 efforts + 1 ledger row
 
 
 if __name__ == "__main__":
+    # The autouse fixture only runs under pytest; wire the override for the
+    # standalone path.
+    app.dependency_overrides[get_session] = _override
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
         fn()
