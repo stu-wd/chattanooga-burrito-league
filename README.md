@@ -61,7 +61,36 @@ Strava callback domain to the Render host, then (re)create the subscription
 against `https://<host>/strava/webhook`.
 
 > Deploys are **manual** (not on-push): trigger "Deploy latest commit" in Render.
-> Free tier sleeps when idle and Postgres expires in ~90 days — fine for testing.
+
+## Operations
+
+### Free-tier caveats
+- **Postgres is ephemeral.** Render's free database is deleted ~30 days after
+  creation, and Blueprint re-syncs / some deploys can replace it with an empty
+  one — so the data resets periodically.
+- **The web service sleeps** after ~15 min idle; a webhook or visit wakes it
+  (~30s cold start), and the background worker only runs while awake.
+- Both are solved by paid plans (paid Postgres, or a paid web instance with a
+  persistent disk + SQLite) when this goes real.
+
+### Recovering from a DB reset
+The database is essentially a **cache of Strava** — the backfill reconstructs it.
+After a reset, each athlete:
+1. Clears site cookies (or uses a new tab) and **Connects** again.
+2. Runs **Backfill <year>** on Settings to rebuild their rolls.
+3. Re-enters the only data that lives only here: write mode + leaderboard opt-in
+   and display name.
+
+The `/` ↔ `/settings` redirect loop that a stale cookie used to cause is handled
+(`_session_athlete` clears the stale session), so a reset no longer bricks the site.
+
+### Admin / debug endpoints
+`/debug/*` and `/athlete/{id}/*` expose cross-athlete data and are gated behind
+`ADMIN_TOKEN` (404 when unset). To use them in prod, set `ADMIN_TOKEN` in Render
+and send it as the `X-Admin-Token` header, e.g.:
+```bash
+curl https://<host>/debug/state -H "X-Admin-Token: $ADMIN_TOKEN"
+```
 
 ## Environment variables
 | Var | Purpose |
