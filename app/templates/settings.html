@@ -34,6 +34,7 @@
     </div>
   </div>
 
+  {% if leaderboard_enabled %}
   <h2>Chattanooga leaderboard</h2>
   <label class="opt">
     <input type="checkbox" id="consent" {% if athlete.community_consent %}checked{% endif %}>
@@ -48,6 +49,7 @@
       Opting in is how you consent to appear on the public leaderboard. Leave anytime to be removed.
     </div>
   </div>
+  {% endif %}
 
   <h2>Backfill past rolls</h2>
   <p class="muted" style="margin:0 0 8px">
@@ -120,16 +122,18 @@
 
   function syncUI() {
     document.querySelectorAll('input[name=mode]').forEach(r => r.checked = r.value === state.mode);
-    $("consent").checked = state.consent;
-    $("name-row").hidden = !state.consent;
+    if ($("consent")) {  // absent when the leaderboard is flag-gated off
+      $("consent").checked = state.consent;
+      $("name-row").hidden = !state.consent;
+    }
     $("save").disabled = !dirty() || nameNeeded();
     renderPreview();
   }
 
   document.querySelectorAll('input[name=mode]').forEach(r =>
     r.addEventListener('change', () => { state.mode = r.value; flash(""); syncUI(); }));
-  $("consent").addEventListener('change', e => { state.consent = e.target.checked; flash(""); syncUI(); });
-  $("display_name").addEventListener('input', e => { state.name = e.target.value; flash(""); syncUI(); });
+  $("consent")?.addEventListener('change', e => { state.consent = e.target.checked; flash(""); syncUI(); });
+  $("display_name")?.addEventListener('input', e => { state.name = e.target.value; flash(""); syncUI(); });
 
   $("save").addEventListener('click', async () => {
     const r = await fetch("/api/me/settings", {

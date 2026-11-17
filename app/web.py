@@ -18,6 +18,9 @@ from .models import Athlete, SegmentEffort
 from .processing import _window_total
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+# Exposed to every template so base.html can hide the leaderboard nav link
+# without each route threading the flag through its context dict.
+templates.env.globals["leaderboard_enabled"] = settings.leaderboard_enabled
 router = APIRouter(tags=["web"])
 
 
@@ -61,6 +64,10 @@ def landing(request: Request, session: Session = Depends(get_session)):
 
 @router.get("/leaderboard", response_class=HTMLResponse)
 def leaderboard(request: Request, session: Session = Depends(get_session)):
+    # Strava API Policy §2.3: serving other athletes' data is prohibited. Gated
+    # off until Strava rules on the §6.1 ≤9,999 exemption. See config.py.
+    if not settings.leaderboard_enabled:
+        raise HTTPException(status_code=404, detail="Not Found")
     data = leaderboard_data(session)
     signed_in = bool(request.session.get("athlete_id"))
     return templates.TemplateResponse(
