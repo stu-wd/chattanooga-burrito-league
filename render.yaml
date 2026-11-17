@@ -19,8 +19,7 @@ services:
         fromDatabase:
           name: burrito-db
           property: connectionString
-      - key: PYTHON_VERSION
-        value: "3.13.1"
+      # Python version is pinned via the committed .python-version file (3.12.8).
       # Non-secret config:
       - key: TARGET_SEGMENT_ID
         value: "40758296"
