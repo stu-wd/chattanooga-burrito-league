@@ -1,31 +1,26 @@
 """Public leaderboard data. TOS: only athletes who explicitly opted in
-(community_consent + a chosen display_name) ever appear here."""
+(community_consent + a chosen display_name) ever appear here.
 
-from sqlalchemy import func, select
+Reads the durable WindowTally aggregate (§6.2) — derived integers, never raw
+Strava effort rows. Gated behind LEADERBOARD_ENABLED (§2.3, compliance item #2)."""
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .models import Athlete, SegmentEffort
-
-
-def _window_filter():
-    return (
-        SegmentEffort.segment_id == settings.target_segment_id,
-        SegmentEffort.effort_start >= settings.competition_start,
-        SegmentEffort.effort_start <= settings.competition_end,
-    )
+from .models import Athlete, WindowTally
 
 
 def leaderboard_data(session: Session) -> dict:
     consenting = Athlete.community_consent.is_(True)
+    edition = settings.edition_key
 
     # Standings: consenting athletes with ≥1 roll this edition, most first.
     rows = session.execute(
-        select(Athlete.display_name, func.count(SegmentEffort.id))
-        .join(SegmentEffort, SegmentEffort.athlete_id == Athlete.athlete_id)
-        .where(consenting, *_window_filter())
-        .group_by(Athlete.athlete_id)
-        .order_by(func.count(SegmentEffort.id).desc(), Athlete.display_name)
+        select(Athlete.display_name, WindowTally.total_count)
+        .join(WindowTally, WindowTally.athlete_id == Athlete.athlete_id)
+        .where(consenting, WindowTally.edition_key == edition, WindowTally.total_count > 0)
+        .order_by(WindowTally.total_count.desc(), Athlete.display_name)
     ).all()
     standings = [
         {"rank": i + 1, "name": name, "total": total}
@@ -34,11 +29,13 @@ def leaderboard_data(session: Session) -> dict:
 
     # Highlight: most crossings in a single activity, among consenting athletes.
     top_ride = session.execute(
-        select(Athlete.display_name, func.count(SegmentEffort.id).label("c"))
-        .join(SegmentEffort, SegmentEffort.athlete_id == Athlete.athlete_id)
-        .where(consenting, *_window_filter())
-        .group_by(Athlete.athlete_id, SegmentEffort.activity_id)
-        .order_by(func.count(SegmentEffort.id).desc())
+        select(Athlete.display_name, WindowTally.best_ride_count)
+        .join(WindowTally, WindowTally.athlete_id == Athlete.athlete_id)
+        .where(
+            consenting, WindowTally.edition_key == edition,
+            WindowTally.best_ride_count > 0,
+        )
+        .order_by(WindowTally.best_ride_count.desc())
         .limit(1)
     ).first()
 

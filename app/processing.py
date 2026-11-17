@@ -7,12 +7,12 @@ import logging
 import re
 from datetime import datetime
 
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import strava
 from .config import settings
-from .models import Athlete, ProcessedActivity, SegmentEffort
+from .models import Athlete, WindowTally
+from .tally import already_written, fold_activity, mark_written
 
 log = logging.getLogger("burrito.processing")
 
@@ -32,10 +32,6 @@ def _parse_dt(raw: str | None) -> datetime | None:
     return datetime.fromisoformat(raw.replace("Z", "+00:00"))
 
 
-def _effort_start(effort: dict) -> datetime | None:
-    return _parse_dt(effort.get("start_date"))  # UTC ISO 8601
-
-
 def _activity_in_window(activity: dict) -> bool:
     start = _parse_dt(activity.get("start_date"))
     if start is None:
@@ -46,22 +42,16 @@ def _activity_in_window(activity: dict) -> bool:
 def _window_total(
     session: Session, athlete_id: int, as_of: datetime | None = None
 ) -> int:
-    """Athlete's own crossings within the window, cumulative through `as_of`.
-    `as_of` = this activity's latest crossing, so each activity shows the running
-    month-to-date total (the final activity lands on the grand total)."""
-    upper = settings.competition_end
-    if as_of is not None and as_of < upper:
-        upper = as_of
-    return session.scalar(
-        select(func.count())
-        .select_from(SegmentEffort)
-        .where(
-            SegmentEffort.athlete_id == athlete_id,
-            SegmentEffort.segment_id == settings.target_segment_id,
-            SegmentEffort.effort_start >= settings.competition_start,
-            SegmentEffort.effort_start <= upper,
-        )
-    ) or 0
+    """Athlete's cumulative window total, read from the durable WindowTally
+    aggregate (§6.2 — no longer a COUNT over raw efforts).
+
+    `as_of` is retained for call-site compatibility but is no longer used: the
+    running total is whatever has been folded so far, which equals the
+    month-to-date total under chronological processing (live webhooks arrive in
+    order; backfill is oldest-first). In process_activity the current activity is
+    folded *before* this is read, so the number already includes this ride."""
+    tally = session.get(WindowTally, (athlete_id, settings.edition_key))
+    return tally.total_count if tally is not None else 0
 
 
 # Our block is bracketed by START/END so it can be located and stripped from
@@ -123,39 +113,21 @@ def process_activity(
     if not efforts:
         return "no match"
 
-    # Record each crossing once, keyed by Strava's effort id (idempotent recount).
-    for effort in efforts:
-        effort_id = effort.get("id")
-        if effort_id is None:
-            continue
-        already = session.scalar(
-            select(SegmentEffort.id).where(
-                SegmentEffort.strava_effort_id == effort_id
-            )
-        )
-        if already is None:
-            session.add(
-                SegmentEffort(
-                    strava_effort_id=effort_id,
-                    athlete_id=athlete.athlete_id,
-                    activity_id=activity_id,
-                    segment_id=settings.target_segment_id,
-                    effort_start=_effort_start(effort),
-                )
-            )
-    session.commit()
-
     this_ride = len(efforts)
-    effort_times = [t for t in (_effort_start(e) for e in efforts) if t is not None]
-    as_of = max(effort_times) if effort_times else None
-    total = _window_total(session, athlete.athlete_id, as_of=as_of)
+    # §6.2 fold-and-forget: count this activity's crossings into the durable
+    # aggregate and discard the raw effort data — we persist NO strava_effort_id /
+    # activity_id / effort_start. Per-activity idempotency (CountedActivity hash)
+    # on BOTH the write and tally-only paths means a re-fetch (webhook retry,
+    # backfill re-run) can never double-count. First count is authoritative.
+    fold_activity(session, athlete.athlete_id, activity_id, this_ride)
+    total = _window_total(session, athlete.athlete_id)
 
     # Tally-only when the job says so (backfill) or the athlete opted out of writes.
     if not write or athlete.write_mode == "off":
         reason = "write off" if athlete.write_mode == "off" else "tally-only"
         return f"tallied {this_ride} ({reason}, window total {total})"
 
-    if session.get(ProcessedActivity, activity_id) is not None:
+    if already_written(session, athlete.athlete_id, activity_id):
         return f"already written (window total {total})"
 
     body = _build_body(this_ride, total)
@@ -163,11 +135,6 @@ def process_activity(
         activity.get("description") or "", body, athlete.write_mode
     )
     strava.update_description(session, athlete, activity_id, description)
-    session.add(
-        ProcessedActivity(
-            activity_id=activity_id, athlete_id=athlete.athlete_id, matched=True
-        )
-    )
-    session.commit()
+    mark_written(session, athlete.athlete_id, activity_id)
     log.info("Updated activity %s: %r", activity_id, description)
     return f"matched — {description!r}"

@@ -10,7 +10,7 @@ from . import strava
 from .athletes import purge_athlete
 from .config import settings
 from .db import get_session
-from .models import Athlete, ProcessedActivity, SegmentEffort
+from .models import Athlete, CountedActivity, SegmentEffort, WindowTally
 from .processing import _window_total
 from .worker import enqueue_backfill
 
@@ -139,11 +139,13 @@ def backfill(
 
 @router.post("/me/reset")
 def reset_rolls(request: Request, session: Session = Depends(get_session)):
-    """Delete the athlete's own efforts + write-markers (keeps tokens/settings).
-    Testing aid so backfill can be re-run from zero."""
+    """Delete the athlete's own tally + counted-activity ledger (keeps
+    tokens/settings). Testing aid so backfill can be re-run from zero."""
     athlete = current_athlete(request, session)
+    session.query(WindowTally).filter_by(athlete_id=athlete.athlete_id).delete()
+    session.query(CountedActivity).filter_by(athlete_id=athlete.athlete_id).delete()
+    # Legacy raw cache — normally already empty post-cutover, cleared defensively.
     session.query(SegmentEffort).filter_by(athlete_id=athlete.athlete_id).delete()
-    session.query(ProcessedActivity).filter_by(athlete_id=athlete.athlete_id).delete()
     session.commit()
     return _me_payload(session, athlete)
 

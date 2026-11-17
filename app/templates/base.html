@@ -49,7 +49,7 @@
     <button class="nav-btn" id="nav-btn" aria-label="Menu">☰</button>
     <div class="nav-menu" id="nav-menu" hidden>
       <a href="/history">🌯 My history</a>
-      <a href="/leaderboard">🏆 Leaderboard</a>
+      {% if leaderboard_enabled %}<a href="/leaderboard">🏆 Leaderboard</a>{% endif %}
       <a href="/settings">⚙️ Settings</a>
     </div>
   </nav>

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from .athletes import purge_athlete
+from .athletes import purge_activity, purge_athlete
 from .config import settings
 from .db import get_session
 from .worker import enqueue_process
@@ -44,5 +44,22 @@ async def receive(request: Request, session: Session = Depends(get_session)):
         added = enqueue_process(activity_id=object_id, athlete_id=owner_id)
         log.info("activity create %s owner %s enqueued=%s", object_id, owner_id, added)
         return {"status": "enqueued" if added else "duplicate"}
+
+    # TOS §6.3: reflect a Strava-side activity deletion within 48h. Pure local DB
+    # delete (no Strava HTTP call), so handle inline and reflect it immediately.
+    if object_type == "activity" and aspect_type == "delete":
+        removed = purge_activity(session, object_id, owner_id)
+        log.info("activity delete %s owner %s removed=%s", object_id, owner_id, removed)
+        return {"status": "purged", "removed": removed}
+
+    # An activity flipped to private is no longer being publicly shared; purge its
+    # cached efforts too (conservative read of §6.2/§6.4 — retaining less is always
+    # permitted). Same inline local delete.
+    if object_type == "activity" and aspect_type == "update" and str(
+        (event.get("updates") or {}).get("private")
+    ).lower() == "true":
+        removed = purge_activity(session, object_id, owner_id)
+        log.info("activity private %s owner %s removed=%s", object_id, owner_id, removed)
+        return {"status": "purged", "removed": removed}
 
     return {"status": "ignored"}

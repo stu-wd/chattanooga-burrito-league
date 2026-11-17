@@ -9,9 +9,10 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import api, oauth, web, webhook
 from .config import settings
-from .db import get_session, init_db
-from .models import Athlete, Job, SegmentEffort
+from .db import SessionLocal, get_session, init_db
+from .models import Athlete, CountedActivity, Job, WindowTally
 from .processing import process_activity
+from .tally import ensure_compliant_cache
 from .worker import enqueue_backfill
 from .worker import run_worker
 
@@ -21,6 +22,11 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # §6.2 boot cutover: fold any legacy raw efforts into the aggregate and purge
+    # them, so a running instance retains zero raw Strava Data. Idempotent/no-op
+    # on a clean DB.
+    with SessionLocal() as session:
+        ensure_compliant_cache(session)
     stop = asyncio.Event()
     task = asyncio.create_task(run_worker(stop))
     yield
@@ -57,7 +63,12 @@ def debug_state(session: Session = Depends(get_session)):
              "write_mode": a.write_mode, "scopes": a.scopes}
             for a in athletes
         ],
-        "efforts": session.scalars(select(SegmentEffort)).all().__len__(),
+        "tallies": [
+            {"athlete_id": t.athlete_id, "edition": t.edition_key,
+             "total": t.total_count, "best_ride": t.best_ride_count}
+            for t in session.scalars(select(WindowTally)).all()
+        ],
+        "counted_activities": session.scalars(select(CountedActivity)).all().__len__(),
         "jobs": [
             {"id": j.id, "kind": j.kind, "activity": j.activity_id,
              "status": j.status, "attempts": j.attempts, "last": j.last_error}
