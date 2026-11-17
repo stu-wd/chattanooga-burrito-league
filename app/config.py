@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     admin_token: str = ""
     database_url: str = "sqlite:///./burrito.db"
     base_url: str = "http://localhost:8000"
+    # Strava API Policy §2.3/§6.1: the public leaderboard displays other
+    # athletes' Strava-derived data, which the 2026 Policy prohibits (no consent
+    # exception). Kept OFF until Strava developer support rules on the §6.1
+    # ≤9,999 exemption. When false: /leaderboard 404s and its nav link is hidden.
+    leaderboard_enabled: bool = False
     target_segment_id: int = 0
     strava_scopes: str = "read,activity:read,activity:write"
 
