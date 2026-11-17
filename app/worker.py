@@ -9,16 +9,20 @@ runs jobs back-to-back and the limiter blocks when the budget is spent."""
 
 import asyncio
 import logging
+import time
 
 from sqlalchemy import select
 
+from .config import settings
 from .db import SessionLocal
 from .models import Athlete, Job
 from .processing import process_activity
+from .tally import sweep_raw_efforts
 
 log = logging.getLogger("burrito.worker")
 
 POLL_INTERVAL = 2.0  # seconds between queue polls when idle
+SWEEP_INTERVAL = 3600.0  # seconds between §6.2 raw-cache sweeps
 MAX_ATTEMPTS = 3
 
 
@@ -105,9 +109,21 @@ def _run_job(job: Job) -> None:
         session.commit()
 
 
+def _sweep_once() -> None:
+    with SessionLocal() as session:
+        sweep_raw_efforts(session, older_than_days=settings.cache_retention_days)
+
+
 async def run_worker(stop: asyncio.Event) -> None:
     log.info("worker started")
+    # On a free-tier instance that sleeps when idle the loop freezes, so legacy raw
+    # rows could briefly outlive the cutoff while asleep — the first sweep on wake
+    # catches up. (Fold-and-forget means there are normally none to begin with.)
+    last_sweep = 0.0
     while not stop.is_set():
+        if time.monotonic() - last_sweep >= SWEEP_INTERVAL:
+            await asyncio.to_thread(_sweep_once)
+            last_sweep = time.monotonic()
         job = await asyncio.to_thread(_claim_next)
         if job is None:
             try:

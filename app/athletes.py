@@ -6,7 +6,7 @@ import logging
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from .models import Athlete, Job, ProcessedActivity, SegmentEffort
+from .models import Athlete, CountedActivity, Job, SegmentEffort, WindowTally
 
 log = logging.getLogger("burrito.athletes")
 
@@ -16,10 +16,12 @@ def purge_athlete(session: Session, athlete_id: int | None) -> None:
     on deauthorization)."""
     if athlete_id is None:
         return
-    session.execute(delete(SegmentEffort).where(SegmentEffort.athlete_id == athlete_id))
+    session.execute(delete(WindowTally).where(WindowTally.athlete_id == athlete_id))
     session.execute(
-        delete(ProcessedActivity).where(ProcessedActivity.athlete_id == athlete_id)
+        delete(CountedActivity).where(CountedActivity.athlete_id == athlete_id)
     )
+    # Legacy raw cache — normally already empty post-cutover, purged defensively.
+    session.execute(delete(SegmentEffort).where(SegmentEffort.athlete_id == athlete_id))
     session.execute(delete(Job).where(Job.athlete_id == athlete_id))
     session.execute(delete(Athlete).where(Athlete.athlete_id == athlete_id))
     session.commit()
