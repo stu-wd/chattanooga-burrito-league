@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block wrap_extra %}wide{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="burrito">🌯</div>
+  <h1>Chattanooga Burrito League</h1>
+  <p class="sub">{{ edition }} edition</p>
+
+  <div class="agg">
+    <div class="agg-item"><div class="stat">{{ total }}</div><div class="muted">burritos rolled</div></div>
+    <div class="agg-item"><div class="stat">{{ participants }}</div><div class="muted">burrito-ers</div></div>
+    {% if biggest_ride %}
+    <div class="agg-item">
+      <div class="stat">{{ biggest_ride.count }}</div>
+      <div class="muted">most in one ride<br><b>{{ biggest_ride.name }}</b></div>
+    </div>
+    {% endif %}
+  </div>
+
+  <h2>Standings</h2>
+  {% if standings %}
+  <table class="board">
+    <thead><tr><th>#</th><th>Burrito-er</th><th class="num">Burritos</th></tr></thead>
+    <tbody>
+      {% for s in standings %}
+      <tr class="{{ 'top3' if s.rank <= 3 else '' }}">
+        <td class="rank">{{ s.rank }}{% if s.rank == 1 %} 🥇{% elif s.rank == 2 %} 🥈{% elif s.rank == 3 %} 🥉{% endif %}</td>
+        <td>{{ s.name }}</td>
+        <td class="num">{{ s.total }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No rolls yet this edition. Be the first on the board.</p>
+  {% endif %}
+
+  <div class="foot">
+    {% if signed_in %}
+      <a class="btn btn-ghost" href="/settings">Your settings</a>
+    {% else %}
+      <a class="btn btn-strava" href="/auth/login">Connect with Strava</a>
+    {% endif %}
+  </div>
+  <p class="muted" style="text-align:center; margin-top:14px">
+    Only people who opted in appear here. Powered by Strava.
+  </p>
+</div>
+
+<style>
+  .agg { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; margin: 10px 0 6px; }
+  .agg-item { text-align: center; min-width: 120px; }
+  table.board { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .board th, .board td { padding: 11px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+  .board th { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .board .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .board .rank { width: 64px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .board tr.top3 td { font-weight: 700; }
+</style>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="burrito">🌯</div>
+  <h1>My History</h1>
+  <p class="sub">{{ total }} burritos this edition</p>
+
+  {% if activities %}
+  <table class="board">
+    <thead><tr><th>Date</th><th class="num">Burritos</th><th></th></tr></thead>
+    <tbody>
+      {% for a in activities %}
+      <tr>
+        <td>{{ a.when }}</td>
+        <td class="num">{{ a.crossings }}</td>
+        <td class="num">
+          <a href="https://www.strava.com/activities/{{ a.activity_id }}" target="_blank" rel="noopener">View on Strava</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No rolls recorded yet. Backfill a past edition from
+    <a href="/settings">Settings</a>, or go roll the segment.</p>
+  {% endif %}
+</div>
+
+<style>
+  table.board { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  .board th, .board td { padding: 11px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+  .board th { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .board .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .board a { color: var(--orange); text-decoration: none; font-size: 14px; }
+</style>
+{% endblock %}

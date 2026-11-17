@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="burrito">🌯</div>
+  <h1>Chattanooga Burrito League</h1>
+  <p class="sub">Roll the burrito segment, and we'll tally your rolls and tack a
+    little note onto your Strava activity. Your call how it shows up — or not at all.</p>
+
+  <a class="btn btn-strava" href="/auth/login">Connect with Strava</a>
+
+  <!-- TODO(brand): replace with Strava's official "Connect with Strava" button
+       asset before public launch (brand-guideline requirement). -->
+
+  <p class="muted" style="margin-top:22px">
+    We only ever write to <em>your</em> activities, and you can disconnect anytime.
+    Powered by Strava.
+  </p>
+</div>
+{% endblock %}

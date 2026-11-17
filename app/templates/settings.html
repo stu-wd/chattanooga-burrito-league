@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block wrap_extra %}wide{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="burrito">🌯</div>
+  <h1>Your Burrito Settings</h1>
+  <p class="sub">Athlete #{{ athlete.athlete_id }}</p>
+
+  <div style="text-align:center; margin: 6px 0 2px">
+    <div class="stat">{{ total }}</div>
+    <div class="muted">burritos this month</div>
+  </div>
+
+  <div class="cols">
+    <div class="col-controls">
+      <h2>Write to my Strava activity</h2>
+      <div id="modes">
+        <label class="opt"><input type="radio" name="mode" value="append"> <b>Append</b>
+          <span class="muted"> — our note below your text</span></label>
+        <label class="opt"><input type="radio" name="mode" value="prepend"> <b>Prepend</b>
+          <span class="muted"> — our note above your text</span></label>
+        <label class="opt"><input type="radio" name="mode" value="off"> <b>Off</b>
+          <span class="muted"> — tally only, never touch my description</span></label>
+      </div>
+      <p class="muted" style="margin-top:8px">
+        We update your description as soon as we can after your activity lands on
+        Strava — usually within a minute or two, not instantly.
+      </p>
+    </div>
+
+    <div class="col-preview">
+      <div class="muted" style="margin-bottom:6px">Preview — how your activity description will look</div>
+      <pre id="preview" class="preview"></pre>
+    </div>
+  </div>
+
+  <h2>Chattanooga leaderboard</h2>
+  <label class="opt">
+    <input type="checkbox" id="consent" {% if athlete.community_consent %}checked{% endif %}>
+    <b>Join the leaderboard</b>
+    <span class="muted"> — show my rolls publicly under a name I choose</span>
+  </label>
+  <div id="name-row" hidden style="margin: 6px 2px 0">
+    <input type="text" id="display_name" maxlength="30" placeholder="Display name (others will see this)"
+           value="{{ athlete.display_name or '' }}"
+           style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-size:15px">
+    <div class="muted" style="margin-top:4px">
+      Opting in is how you consent to appear on the public leaderboard. Leave anytime to be removed.
+    </div>
+  </div>
+
+  <h2>Backfill past rolls</h2>
+  <p class="muted" style="margin:0 0 8px">
+    Already rolled the segment this edition? Pull your past activities so your
+    total is up to date (respects your write setting above).
+  </p>
+  <div class="years">
+    <button class="btn btn-ghost yr" data-year="2026">Backfill 2026</button>
+    <button class="btn btn-ghost yr" disabled>2027 — coming soon</button>
+    <button class="btn btn-ghost" id="reset">Reset my rolls</button>
+  </div>
+
+  <div id="flash"></div>
+
+  <div class="actions">
+    <button class="btn btn-strava" id="save" disabled>Save</button>
+    <button class="btn btn-danger" id="disconnect">Disconnect from Strava</button>
+  </div>
+</div>
+
+<style>
+  .cols { display: flex; gap: 22px; margin-top: 8px; flex-wrap: wrap; }
+  .col-controls { flex: 1 1 280px; }
+  .col-preview { flex: 1 1 280px; }
+  .opt { display: block; padding: 10px 12px; border: 1px solid var(--line);
+         border-radius: 10px; margin: 8px 0; cursor: pointer; }
+  .opt:has(input:checked) { border-color: var(--orange); background: #fff7f3; }
+  .preview { background: #fff; border: 1px solid var(--line); border-radius: 10px;
+             padding: 14px; white-space: pre-wrap; word-wrap: break-word;
+             font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+             min-height: 160px; margin: 0; }
+  .preview .blk { color: var(--orange); }
+  .actions { display: flex; justify-content: space-between; align-items: center;
+             gap: 12px; margin-top: 20px; }
+  .years { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn:disabled { opacity: .45; cursor: default; }
+</style>
+
+<script>
+  const START = "—— 🌯 Chattanooga Burrito League ——";
+  const END = "—— end 🌯 ——";
+  const NOTES = "Chilly 5-miler along the river 🏃";
+  const BODY = "🌯 You rolled 7 burritos today!\nYou've rolled 42 burritos this month!";
+  const BLOCK = `${START}\n${BODY}\n${END}`;
+
+  const initial = {
+    mode: "{{ athlete.write_mode }}",
+    consent: {{ 'true' if athlete.community_consent else 'false' }},
+    name: {{ (athlete.display_name or '') | tojson }},
+  };
+  const state = { ...initial };
+
+  const $ = (id) => document.getElementById(id);
+  const flash = (m) => { $("flash").textContent = m || ""; };
+  const esc = (s) => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const dirty = () =>
+    state.mode !== initial.mode || state.consent !== initial.consent || state.name !== initial.name;
+  const nameNeeded = () => state.consent && !state.name.trim();
+
+  function renderPreview() {
+    const p = $("preview");
+    if (state.mode === "off") {
+      p.innerHTML = esc(NOTES) +
+        '\n\n<span class="muted">(off — your description is left untouched; rolls still counted)</span>';
+      return;
+    }
+    const composed = state.mode === "prepend" ? `${BLOCK}\n\n${NOTES}` : `${NOTES}\n\n${BLOCK}`;
+    p.innerHTML = esc(composed).replace(esc(BLOCK), '<span class="blk">' + esc(BLOCK) + '</span>');
+  }
+
+  function syncUI() {
+    document.querySelectorAll('input[name=mode]').forEach(r => r.checked = r.value === state.mode);
+    $("consent").checked = state.consent;
+    $("name-row").hidden = !state.consent;
+    $("save").disabled = !dirty() || nameNeeded();
+    renderPreview();
+  }
+
+  document.querySelectorAll('input[name=mode]').forEach(r =>
+    r.addEventListener('change', () => { state.mode = r.value; flash(""); syncUI(); }));
+  $("consent").addEventListener('change', e => { state.consent = e.target.checked; flash(""); syncUI(); });
+  $("display_name").addEventListener('input', e => { state.name = e.target.value; flash(""); syncUI(); });
+
+  $("save").addEventListener('click', async () => {
+    const r = await fetch("/api/me/settings", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        write_mode: state.mode,
+        community_consent: state.consent,
+        display_name: state.name,
+      }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      initial.mode = d.write_mode; initial.consent = d.community_consent;
+      initial.name = d.display_name || "";
+      state.name = initial.name; syncUI(); flash("Saved ✓");
+    } else {
+      const d = await r.json().catch(() => ({}));
+      flash(d.detail || "Couldn't save.");
+    }
+  });
+
+  async function pollTotal(times) {
+    for (let i = 0; i < times; i++) {
+      await new Promise(r => setTimeout(r, 2500));
+      const r = await fetch("/api/me");
+      if (r.ok) {
+        const d = await r.json();
+        document.querySelector(".stat").textContent = d.total;
+      }
+    }
+  }
+
+  document.querySelectorAll(".yr[data-year]").forEach(btn =>
+    btn.addEventListener('click', async () => {
+      const year = Number(btn.dataset.year);
+      btn.disabled = true; flash("Backfilling " + year + "… this can take a bit.");
+      const r = await fetch("/api/me/backfill", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year }),
+      });
+      if (r.ok) { flash("Backfill queued — your total will climb as we process."); pollTotal(8).then(() => btn.disabled = false); }
+      else { const d = await r.json().catch(() => ({})); flash(d.detail || "Couldn't start backfill."); btn.disabled = false; }
+    }));
+
+  $("reset").addEventListener('click', async () => {
+    if (!confirm("Clear all your recorded rolls? (keeps your account + settings)")) return;
+    const r = await fetch("/api/me/reset", { method: "POST" });
+    if (r.ok) {
+      const d = await r.json();
+      document.querySelector(".stat").textContent = d.total;
+      flash("Rolls reset to " + d.total + ". Backfill to repopulate.");
+    } else { flash("Couldn't reset."); }
+  });
+
+  $("disconnect").addEventListener('click', async () => {
+    if (!confirm("Disconnect and delete your data?")) return;
+    const r = await fetch("/api/me/disconnect", { method: "POST" });
+    if (r.ok) window.location = "/"; else flash("Couldn't disconnect.");
+  });
+
+  syncUI();
+</script>
+{% endblock %}

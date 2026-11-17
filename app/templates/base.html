@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Chattanooga Burrito League{% endblock %}</title>
+  <style>
+    :root { --orange: #FC5200; --ink: #1a1a1a; --muted: #6b6b6b; --line: #e6e6e6; --bg: #fafafa; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           color: var(--ink); background: var(--bg); }
+    .wrap { max-width: 560px; margin: 0 auto; padding: 48px 20px; }
+    .wrap.wide { max-width: 860px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 28px; }
+    h1 { font-size: 28px; margin: 0 0 6px; }
+    h2 { font-size: 18px; margin: 28px 0 10px; }
+    p.sub { color: var(--muted); margin: 0 0 24px; }
+    .burrito { font-size: 44px; }
+    .btn { display: inline-block; border: 0; border-radius: 10px; padding: 12px 20px;
+           font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none; }
+    .btn-strava { background: var(--orange); color: #fff; }
+    .btn-ghost { background: #fff; border: 1px solid var(--line); color: var(--ink); }
+    .btn-danger { background: #fff; border: 1px solid #e0b4b4; color: #b00020; }
+    .row { display: flex; align-items: center; justify-content: space-between;
+           padding: 14px 0; border-top: 1px solid var(--line); gap: 16px; }
+    .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+    .seg button { border: 0; background: #fff; padding: 8px 14px; cursor: pointer; font-size: 14px; }
+    .seg button.active { background: var(--orange); color: #fff; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .stat { font-size: 40px; font-weight: 700; color: var(--orange); }
+    .toggle { font-size: 15px; }
+    .foot { margin-top: 18px; text-align: center; }
+    #flash { min-height: 20px; color: var(--muted); font-size: 13px; margin-top: 10px; }
+    .nav { position: fixed; top: 14px; right: 14px; z-index: 50; }
+    .nav-btn { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line);
+               background: #fff; cursor: pointer; font-size: 20px; line-height: 1; }
+    .nav-menu { position: absolute; right: 0; top: 52px; background: #fff;
+                border: 1px solid var(--line); border-radius: 12px; min-width: 180px;
+                box-shadow: 0 8px 28px rgba(0,0,0,.10); overflow: hidden; }
+    .nav-menu[hidden] { display: none; }
+    .nav-menu a { display: block; padding: 12px 16px; text-decoration: none; color: var(--ink); }
+    .nav-menu a:hover { background: var(--bg); }
+    .nav-menu a + a { border-top: 1px solid var(--line); }
+  </style>
+</head>
+<body>
+  {% if show_nav %}
+  <nav class="nav">
+    <button class="nav-btn" id="nav-btn" aria-label="Menu">☰</button>
+    <div class="nav-menu" id="nav-menu" hidden>
+      <a href="/history">🌯 My history</a>
+      <a href="/leaderboard">🏆 Leaderboard</a>
+      <a href="/settings">⚙️ Settings</a>
+    </div>
+  </nav>
+  <script>
+    (function () {
+      const b = document.getElementById("nav-btn"), m = document.getElementById("nav-menu");
+      b.addEventListener("click", (e) => { e.stopPropagation(); m.hidden = !m.hidden; });
+      document.addEventListener("click", () => { m.hidden = true; });
+    })();
+  </script>
+  {% endif %}
+  <div class="wrap {% block wrap_extra %}{% endblock %}">{% block content %}{% endblock %}</div>
+</body>
+</html>
