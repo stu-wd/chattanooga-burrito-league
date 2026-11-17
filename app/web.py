@@ -21,9 +21,22 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 router = APIRouter(tags=["web"])
 
 
+def _session_athlete(request: Request, session: Session) -> Athlete | None:
+    """Resolve the signed-in athlete. If the cookie references a row that no
+    longer exists (e.g. DB reset), clear the stale session so pages don't
+    redirect-loop between / and /settings."""
+    athlete_id = request.session.get("athlete_id")
+    if not athlete_id:
+        return None
+    athlete = session.get(Athlete, athlete_id)
+    if athlete is None:
+        request.session.clear()
+    return athlete
+
+
 @router.get("/", response_class=HTMLResponse)
-def landing(request: Request):
-    if request.session.get("athlete_id"):
+def landing(request: Request, session: Session = Depends(get_session)):
+    if _session_athlete(request, session) is not None:
         return RedirectResponse("/settings", status_code=303)
     return templates.TemplateResponse("landing.html", {"request": request})
 
@@ -40,8 +53,7 @@ def leaderboard(request: Request, session: Session = Depends(get_session)):
 
 @router.get("/history", response_class=HTMLResponse)
 def history_page(request: Request, session: Session = Depends(get_session)):
-    athlete_id = request.session.get("athlete_id")
-    athlete = session.get(Athlete, athlete_id) if athlete_id else None
+    athlete = _session_athlete(request, session)
     if athlete is None:
         return RedirectResponse("/", status_code=303)
     # The athlete's own rolls, grouped by activity, newest first.
@@ -80,8 +92,7 @@ def history_page(request: Request, session: Session = Depends(get_session)):
 
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, session: Session = Depends(get_session)):
-    athlete_id = request.session.get("athlete_id")
-    athlete = session.get(Athlete, athlete_id) if athlete_id else None
+    athlete = _session_athlete(request, session)
     if athlete is None:
         return RedirectResponse("/", status_code=303)
     return templates.TemplateResponse(
