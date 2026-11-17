@@ -1,0 +1,45 @@
+# Render Blueprint — one always-on web service (app + in-process worker) + Postgres.
+# Create via Render Dashboard → New → Blueprint, pointing at this repo.
+databases:
+  - name: burrito-db
+    databaseName: burrito
+    user: burrito
+    plan: free
+
+services:
+  - type: web
+    name: chattanooga-burrito-league
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: burrito-db
+          property: connectionString
+      - key: PYTHON_VERSION
+        value: "3.13.1"
+      # Non-secret config:
+      - key: TARGET_SEGMENT_ID
+        value: "40758296"
+      - key: STRAVA_SCOPES
+        value: "read,activity:read,activity:write"
+      - key: COMPETITION_START
+        value: "2026-01-01T05:00:00+00:00"
+      - key: COMPETITION_END
+        value: "2026-02-01T04:59:59+00:00"
+      # Secrets + the live URL — set these in the Render dashboard (sync:false):
+      - key: STRAVA_CLIENT_ID
+        sync: false
+      - key: STRAVA_CLIENT_SECRET
+        sync: false
+      - key: STRAVA_VERIFY_TOKEN
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: BASE_URL
+        sync: false
