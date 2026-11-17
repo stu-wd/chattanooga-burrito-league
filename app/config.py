@@ -11,6 +11,15 @@ class Settings(BaseSettings):
     strava_verify_token: str
     encryption_key: str
     session_secret: str = "dev-insecure-change-me"
+    # Keys the one-way HMAC that identifies a counted activity without retaining
+    # the raw Strava activity id (§6.2 cache design). MUST be stable — rotating it
+    # re-hashes every activity and would reintroduce double-counting, so a rotation
+    # requires a full WindowTally rebuild. Independent of session_secret on purpose.
+    cache_hash_key: str = "dev-insecure-cache-hash-key"
+    # §6.2 ongoing guard: the worker periodically purges any legacy raw effort rows
+    # older than this. Normally a no-op (fold-and-forget writes none); it is
+    # defense-in-depth against a regression that reintroduces raw rows.
+    cache_retention_days: int = 7
     # Gates /debug/* and admin endpoints (X-Admin-Token header). Empty = locked.
     admin_token: str = ""
     database_url: str = "sqlite:///./burrito.db"
@@ -32,6 +41,13 @@ class Settings(BaseSettings):
     @property
     def redirect_uri(self) -> str:
         return f"{self.base_url.rstrip('/')}/auth/callback"
+
+    @property
+    def edition_key(self) -> str:
+        """Durable label for the active competition window, derived from our own
+        config (not Strava Data). Keys WindowTally / CountedActivity rows so past
+        editions coexist. e.g. 2027-01."""
+        return self.competition_start.strftime("%Y-%m")
 
 
 settings = Settings()  # type: ignore[call-arg]
