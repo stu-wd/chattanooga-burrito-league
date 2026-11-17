@@ -5,7 +5,7 @@ templates without touching the backend."""
 from datetime import timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -32,6 +32,24 @@ def _session_athlete(request: Request, session: Session) -> Athlete | None:
     if athlete is None:
         request.session.clear()
     return athlete
+
+
+@router.get("/dev/login")
+def dev_login(request: Request, session: Session = Depends(get_session)):
+    """Local-only shortcut: log in as the first athlete in the DB so you can
+    iterate on /settings and /history without the OAuth/ngrok round-trip.
+    Refuses unless running on SQLite (i.e. local dev)."""
+    from .config import settings as _s
+
+    if not _s.database_url.startswith("sqlite"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    athlete = session.scalars(select(Athlete).limit(1)).first()
+    if athlete is None:
+        return HTMLResponse(
+            "<p>No athlete in the local DB yet. Connect once via ngrok, or seed one.</p>"
+        )
+    request.session["athlete_id"] = athlete.athlete_id
+    return RedirectResponse("/settings", status_code=303)
 
 
 @router.get("/", response_class=HTMLResponse)
