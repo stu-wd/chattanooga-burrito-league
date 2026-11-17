@@ -24,9 +24,10 @@ case "$cmd" in
     ;;
   delete)
     id="${2:?usage: subscribe.sh delete <subscription_id>}"
-    curl -s -X DELETE "$API/$id" \
-      -d client_id="$STRAVA_CLIENT_ID" \
-      -d client_secret="$STRAVA_CLIENT_SECRET" -w "HTTP %{http_code}\n"
+    # Strava reads credentials from the query string for DELETE (not the body).
+    curl -s -X DELETE \
+      "$API/$id?client_id=$STRAVA_CLIENT_ID&client_secret=$STRAVA_CLIENT_SECRET" \
+      -w "HTTP %{http_code}\n"
     ;;
   *) echo "usage: subscribe.sh [create|list|delete <id>]" >&2; exit 1 ;;
 esac
